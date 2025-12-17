@@ -1,13 +1,35 @@
 # api/main.py
-from fastapi import FastAPI, UploadFile, File, Form
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.responses import JSONResponse
 from pathlib import Path
-import shutil, uuid, os
+from verificar_cuerpo import analizar_imagen
+import shutil, uuid, os, cv2
+import numpy as np
 
 from utils.silhouette import generate_silhouette
 from utils.model_utils import load_model, predict_measurements
 
 app = FastAPI(title="BodyM API")
+
+@app.post("/verificar-cuerpo")
+async def verificar_cuerpo(front: UploadFile = File(...),
+                            side: UploadFile = File(...)):
+
+    resultado_front = analizar_imagen(front)
+    resultado_side  = analizar_imagen(side)
+
+    hay_cuerpo = resultado_front["hay_cuerpo"] and resultado_side["hay_cuerpo"]
+    cuerpo_completo = resultado_front["cuerpo_completo"] and resultado_side["cuerpo_completo"]
+
+    return {
+        "front": resultado_front,
+        "side": resultado_side,
+        "resultado_final": {
+            "hay_cuerpo_en_ambas": hay_cuerpo,
+            "cuerpo_completo_en_ambas": cuerpo_completo
+        }
+    }
+
 
 @app.get("/health")
 def health():
