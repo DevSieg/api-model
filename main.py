@@ -2,7 +2,7 @@
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.responses import JSONResponse
 from pathlib import Path
-from verificar_cuerpo import analizar_imagen
+from verificar_cuerpo import analizar_imagen_bytes
 import shutil, uuid, os, cv2
 import numpy as np
 
@@ -12,21 +12,26 @@ from utils.model_utils import load_model, predict_measurements
 app = FastAPI(title="BodyM API")
 
 @app.post("/verificar-cuerpo")
-async def verificar_cuerpo(front: UploadFile = File(...),
-                            side: UploadFile = File(...)):
+async def verificar_cuerpo(
+    front: UploadFile = File(...),
+    side: UploadFile = File(...)
+):
+    front_bytes = await front.read()
+    side_bytes = await side.read()
 
-    resultado_front = analizar_imagen(front)
-    resultado_side  = analizar_imagen(side)
-
-    hay_cuerpo = resultado_front["hay_cuerpo"] and resultado_side["hay_cuerpo"]
-    cuerpo_completo = resultado_front["cuerpo_completo"] and resultado_side["cuerpo_completo"]
+    res_front = analizar_imagen_bytes(front_bytes)
+    res_side = analizar_imagen_bytes(side_bytes)
 
     return {
-        "front": resultado_front,
-        "side": resultado_side,
+        "front": res_front,
+        "side": res_side,
         "resultado_final": {
-            "hay_cuerpo_en_ambas": hay_cuerpo,
-            "cuerpo_completo_en_ambas": cuerpo_completo
+            "hay_cuerpo_en_ambas": (
+                res_front["hay_cuerpo"] and res_side["hay_cuerpo"]
+            ),
+            "cuerpo_completo_en_ambas": (
+                res_front["cuerpo_completo"] and res_side["cuerpo_completo"]
+            )
         }
     }
 

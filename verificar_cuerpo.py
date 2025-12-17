@@ -1,56 +1,44 @@
-from fastapi import FastAPI, UploadFile, File
-import torch
-import torchvision
-import cv2
+import io
 import numpy as np
-import tempfile
+from PIL import Image
+from ultralytics import YOLO
 
-model = torchvision.models.detection.keypointrcnn_resnet50_fpn(pretrained=True)
-model.eval()
-def analizar_imagen(file: UploadFile):
-    # guardar temporalmente
-    with tempfile.NamedTemporaryFile(delete=False, suffix=file.filename) as tmp:
-        tmp.write(file.file.read())
-        tmp_path = tmp.name
+# Modelo más liviano (velocidad)
+model = YOLO("yolov8n-pose.pt")
 
-    # cargar imagen
-    img = cv2.imread(tmp_path)
-    if img is None:
+def analizar_imagen_bytes(image_bytes: bytes):
+
+    image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+    img = np.array(image)
+
+    results = model(img, conf=0.4, verbose=False)
+
+    if not results or results[0].keypoints is None:
         return {"hay_cuerpo": False, "cuerpo_completo": False}
 
-    img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-    img_tensor = torch.from_numpy(img_rgb / 255.0).permute(2, 0, 1).float().unsqueeze(0)
+    kpts = results[0].keypoints.xy
+    scores = results[0].keypoints.conf
 
-    # correr modelo
-    with torch.no_grad():
-        outputs = model(img_tensor)[0]
+    if kpts is None or len(kpts) == 0:
+        return {"hay_cuerpo": False, "cuerpo_completo": False}
 
-    keypoints = outputs["keypoints"]
-    scores = outputs["scores"]
+    hay_cuerpo = True
 
-    hay_cuerpo = False
-    cuerpo_completo = False
+    # índices clave YOLOv8 Pose (COCO)
+    puntos_clave = [
+        0,   # nariz
+        5, 6,    # hombros
+        11, 12,  # caderas
+        13, 14,  # rodillas
+        15, 16   # tobillos
+    ]
 
-    umbral_det = 0.80       # persona detectada
-    umbral_kp = 0.50        # punto del cuerpo visible
+    visibles = 0
+    for idx in puntos_clave:
+        if scores[0][idx] > 0.5:
+            visibles += 1
 
-    if len(scores) > 0:
-        for i, score in enumerate(scores):
-            if score < umbral_det:
-                continue
-
-            hay_cuerpo = True
-
-            # detectar puntos del cuerpo visibles
-            kps_visibles = (keypoints[i][:, 2] > umbral_kp).sum().item()
-
-            # si hay suficientes keypoints -> cuerpo completo
-            if kps_visibles >= 12:
-                cuerpo_completo = True
-            else:
-                cuerpo_completo = False
-
-            break  # analizamos solo la persona más confiable
+    cuerpo_completo = visibles >= 7
 
     return {
         "hay_cuerpo": hay_cuerpo,
